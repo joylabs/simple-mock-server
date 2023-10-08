@@ -16,8 +16,33 @@ import json
 import os
 import sys
 import time
+import typing
 
-from BaseHTTPServer import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+
+class CallsRegistry:
+    def __init__(self):
+        self.__registry: list[dict] = []
+
+    def add(self, method: str, path: str, body: typing.Optional[bytes]):
+        if body is not None:
+            body = body.decode()
+
+        self.__registry.append({
+            'method': method,
+            'path': path,
+            'body': body,
+        })
+
+    def list(self) -> list[dict]:
+        return self.__registry
+
+    def clear(self):
+        self.__registry = []
+
+
+REGISTRY = CallsRegistry()
 
 
 class Configuration:
@@ -39,7 +64,7 @@ class Configuration:
         }
 
         for response in responses:
-            mocked_resp = MokedResponse(
+            mocked_resp = MockedResponse(
                 response.get("method"),
                 response.get("path"),
                 response.get("responseCode"),
@@ -52,7 +77,7 @@ class Configuration:
             method_map[response.get("path")] = mocked_resp
 
 
-class MokedResponse:
+class Response:
     def __init__(
         self,
         method=None,
@@ -67,26 +92,39 @@ class MokedResponse:
         self.response_code = response_code or 200
         self.headers = headers or []
         self.delay = delay or 0
-        self.body = self.MokedResponseBody(body)
+        self.body = self.body_wrapper_cls()(body)
 
     def __repr__(self):
         return self.__str__()
 
-    def __str__(self):
-        return (
-            "method = [%s], path = [%s], response_code = [%s], "
-            "headers = [%s], body = [%s], delay = [%s]"
-            % (
-                self.method,
-                self.path,
-                self.response_code,
-                self.headers,
-                self.body,
-                self.delay,
-            )
-        )
+    def body_wrapper_cls(self):
+        raise NotImplementedError
 
-    class MokedResponseBody:
+
+class MockerResponse(Response):
+    class Body:
+        def __init__(self, body: typing.Optional[str] = None):
+            self.body: str = body or ''
+
+        def load(self) -> bytes:
+            return self.body.encode()
+
+        def __len__(self):
+            return len(self.body)
+
+        def __str__(self):
+            return self.body
+
+    def body_wrapper_cls(self):
+        return self.Body
+
+
+class MockedResponse(Response):
+
+    def body_wrapper_cls(self):
+        return self.MockedResponseBody
+
+    class MockedResponseBody:
         def __init__(self, content=None):
             self._file_definition = "@file://"
             self.content = content if content else ""
@@ -99,9 +137,9 @@ class MokedResponse:
                     with open(filename) as file:
                         return file.read()
                 except:
-                    print >> sys.stderr, (
+                    print((
                         "File '%s' not found in filesystem." % filename
-                    )
+                    ), file=sys.stderr)
                     return None
             else:
                 return self.content.encode('utf-8')
@@ -137,50 +175,71 @@ def SimpleHandlerFactory(configuration):
             self.end_headers()
 
         def do_GET(self):
-            response = self.retrive_response(self.path, "GET")
+            response = self.retrieve_response(self.path, "GET")
             self.send(self.path, response)
 
         def do_POST(self):
-            response = self.retrive_response(self.path, "POST")
+            response = self.retrieve_response(self.path, "POST")
             self.send(self.path, response)
 
         def do_DELETE(self):
-            response = self.retrive_response(self.path, "DELETE")
+            response = self.retrieve_response(self.path, "DELETE")
             self.send(self.path, response)
 
         def do_PUT(self):
-            response = self.retrive_response(self.path, "PUT")
+            response = self.retrieve_response(self.path, "PUT")
             self.send(self.path, response)
 
-        def send(self, path, response):
+        def send(self, path, response: Response):
             time.sleep(response.delay)
 
             self.send_response(response.response_code)
 
             for header in response.headers:
-                self.send_header(header.keys()[0], header.values()[0])
+                self.send_header(list(header.keys())[0], list(header.values())[0])
             self.send_header("Content-length", str(len(response.body)))
             self.end_headers()
             self.wfile.write(response.body.load())
 
-        def retrive_response(self, path, method):
-            try:
-                response = self.response_map.get(method)(path)
+        def retrieve_response(self, path, method) -> Response:
 
-                if response is None:
-                    body = '{ "message": "path \'%s\' not found" }' % path
-                    headers = [{"Content-Type": "Application/JSON"}]
-                    response = MokedResponse(method, path, 404, headers, body)
+            if path.startswith('/mocker'):
+                response: Response
+                match method:
+                    case 'GET':
+                        headers = [{"Content-Type": "application/json"}]
+                        d = json.dumps(REGISTRY.list())
+                        response = MockerResponse(method, path, 200, headers, d)
+                    case 'DELETE':
+                        REGISTRY.clear()
+                        response = MockerResponse(method, path, 204, {}, '')
+                    case _:
+                        response = MockerResponse(method, path, 500, {}, 'Unknown method')
+                return response
 
-            except Exception as err:
-                body = (
-                    '{ "message": "Some error happened while getting path \'%s\', "cause": "%s" }'
-                    % (path, str(err))
-                )
-                headers = [{"Content-Type": "Application/JSON"}]
-                response = MokedResponse(method, path, 500, headers, body)
+            else:
+                content = None
+                if self.headers.get('Content-Length') or 0 > 0:
+                    content = self.rfile.read(int(self.headers.get('Content-Length')))
 
-            return response
+                REGISTRY.add(path, method, content)
+                try:
+                    response = self.response_map.get(method)(path)
+
+                    if response is None:
+                        body = '{ "message": "path \'%s\' not found" }' % path
+                        headers = [{"Content-Type": "Application/JSON"}]
+                        response = MockedResponse(method, path, 404, headers, body)
+
+                except Exception as err:
+                    body = (
+                        '{ "message": "Some error happened while getting path \'%s\', "cause": "%s" }'
+                        % (path, str(err))
+                    )
+                    headers = [{"Content-Type": "application/json"}]
+                    response = MockedResponse(method, path, 500, headers, body)
+
+                return response
 
     return SimpleHandler
 
@@ -190,7 +249,7 @@ def load_configuration(config_file=None):
     default_port = int(os.environ.get("PORT", "8000"))
     default_responses = []
     if config_file:
-        print ('Loading "%s"...' % config_file)
+        print(('Loading "%s"...' % config_file))
         file_name = config_file
     else:
         print ("Loading default config.json...")
@@ -213,10 +272,10 @@ def main(config):
         (config.hostname, config.port), SimpleHandlerFactory(config)
     )
 
-    print time.asctime(), "Server Starts - %s:%s" % (
+    print(time.asctime(), "Server Starts - %s:%s" % (
         config.hostname,
         config.port,
-    )
+    ))
 
     try:
         httpd.serve_forever()
@@ -224,10 +283,10 @@ def main(config):
         pass
 
     httpd.server_close()
-    print time.asctime(), "Server Stops - %s:%s" % (
+    print(time.asctime(), "Server Stops - %s:%s" % (
         config.hostname,
         config.port,
-    )
+    ))
 
 
 def get_opts():

@@ -13,12 +13,17 @@ $ ./server.py
 
 import argparse
 import json
+import logging
 import os
 import sys
 import time
 import typing
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.StreamHandler())
+logger.setLevel(logging.INFO)
 
 
 class CallsRegistry:
@@ -137,9 +142,9 @@ class MockedResponse(Response):
                     with open(filename) as file:
                         return file.read()
                 except:
-                    print((
-                        "File '%s' not found in filesystem." % filename
-                    ), file=sys.stderr)
+                    logger.error(
+                        "File '%s' not found in filesystem.", filename
+                    )
                     return None
             else:
                 return self.content.encode('utf-8')
@@ -154,10 +159,7 @@ class MockedResponse(Response):
             return length if self.is_file else len(self.content)
 
         def __str__(self):
-            return "is_file = [%s], content = [%s]" % (
-                self.is_file,
-                self.content,
-            )
+            return f"is_file = [{self.is_file}], content = [{self.content}]"
 
 
 def SimpleHandlerFactory(configuration):
@@ -227,15 +229,12 @@ def SimpleHandlerFactory(configuration):
                     response = self.response_map.get(method)(path)
 
                     if response is None:
-                        body = '{ "message": "path \'%s\' not found" }' % path
-                        headers = [{"Content-Type": "Application/JSON"}]
+                        body = json.dumps({"message": f"path '{path}' not found"})
+                        headers = [{"Content-Type": "application/json"}]
                         response = MockedResponse(method, path, 404, headers, body)
 
                 except Exception as err:
-                    body = (
-                        '{ "message": "Some error happened while getting path \'%s\', "cause": "%s" }'
-                        % (path, str(err))
-                    )
+                    body = json.dumps({"message": f"An error happened with path '{path}': {err}"})
                     headers = [{"Content-Type": "application/json"}]
                     response = MockedResponse(method, path, 500, headers, body)
 
@@ -249,10 +248,10 @@ def load_configuration(config_file=None):
     default_port = int(os.environ.get("PORT", "8000"))
     default_responses = []
     if config_file:
-        print(('Loading "%s"...' % config_file))
+        logger.info('Loading "%s"...', config_file)
         file_name = config_file
     else:
-        print ("Loading default config.json...")
+        logger.info("Loading default config.json...")
         file_name = "config.json"
 
     with open(file_name) as conf_file:
@@ -272,10 +271,7 @@ def main(config):
         (config.hostname, config.port), SimpleHandlerFactory(config)
     )
 
-    print(time.asctime(), "Server Starts - %s:%s" % (
-        config.hostname,
-        config.port,
-    ))
+    logger.info("Server Starts - %s:%s", config.hostname, config.port)
 
     try:
         httpd.serve_forever()
@@ -283,10 +279,7 @@ def main(config):
         pass
 
     httpd.server_close()
-    print(time.asctime(), "Server Stops - %s:%s" % (
-        config.hostname,
-        config.port,
-    ))
+    logger.info("Server Stops - %s:%s", config.hostname, config.port)
 
 
 def get_opts():

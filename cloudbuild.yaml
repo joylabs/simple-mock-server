@@ -1,0 +1,22 @@
+steps:
+  - name: 'docker:stable'
+    entrypoint: sh
+    id: "build"
+    args:
+      - "-c"
+      - |
+        set -x
+        docker build -t gcr.io/$PROJECT_ID/$REPO_NAME:$REVISION_ID .
+        docker build -t gcr.io/$PROJECT_ID/$REPO_NAME-worker:$REVISION_ID . -f Dockerfile.worker 
+
+  - name: 'docker:stable'
+    entrypoint: sh
+    id: 'image-push'
+    args:
+      - "-c"
+      - |
+        set -x
+        docker push gcr.io/$PROJECT_ID/$REPO_NAME:$REVISION_ID
+        docker push gcr.io/$PROJECT_ID/$REPO_NAME-worker:$REVISION_ID
+
+timeout: 3000s

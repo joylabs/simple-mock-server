@@ -54,6 +54,7 @@ class Configuration:
     def __init__(self, hostname, port, responses):
         self.hostname = hostname
         self.port = port
+        self.head_response_map = {}
         self.get_response_map = {}
         self.post_response_map = {}
         self.put_response_map = {}
@@ -66,6 +67,7 @@ class Configuration:
             "POST": self.post_response_map,
             "PUT": self.put_response_map,
             "DELETE": self.delete_response_map,
+            "HEAD": self.head_response_map,
         }
 
         for response in responses:
@@ -133,7 +135,7 @@ class MockedResponse(Response):
         def __init__(self, content=None):
             self._file_definition = "@file://"
             self.content = content if content else ""
-            self.is_file = self._file_definition in content
+            self.is_file = self._file_definition in self.content
 
         def load(self):
             if self.is_file:
@@ -165,6 +167,7 @@ class MockedResponse(Response):
 def SimpleHandlerFactory(configuration):
     class SimpleHandler(BaseHTTPRequestHandler):
         response_map = {
+            "HEAD": configuration.head_response_map.get,
             "GET": configuration.get_response_map.get,
             "POST": configuration.post_response_map.get,
             "PUT": configuration.put_response_map.get,
@@ -172,9 +175,8 @@ def SimpleHandlerFactory(configuration):
         }
 
         def do_HEAD(self):
-            self.send_response(200)
-            self.send_header("Content-type", "text/html")
-            self.end_headers()
+            response = self.retrieve_response(self.path, "HEAD")
+            self.send(self.path, response)
 
         def do_GET(self):
             response = self.retrieve_response(self.path, "GET")

@@ -6,7 +6,7 @@ steps:
       - "-c"
       - |
         set -x
-        docker build -t gcr.io/$PROJECT_ID/$REPO_NAME:$REVISION_ID .
+        docker build -t gcr.io/$PROJECT_ID/simple-mock-server:$REVISION_ID .
 
   - name: 'docker:stable'
     entrypoint: sh
@@ -18,7 +18,9 @@ steps:
       - |
         set -x
         if [ $BRANCH_NAME == 'master' ]; then
-          docker push gcr.io/$PROJECT_ID/$REPO_NAME:$REVISION_ID gcr.io/$PROJECT_ID/$REPO_NAME:latest
+          docker push gcr.io/$PROJECT_ID/simple-mock-server:$REVISION_ID gcr.io/$PROJECT_ID/simple-mock-server:latest
+          docker tag gcr.io/$PROJECT_ID/simple-mock-server:$REVISION_ID gcr.io/$PROJECT_ID/simple-mock-server:latest
+          docker push gcr.io/$PROJECT_ID/simple-mock-server:latest
         fi
         
 

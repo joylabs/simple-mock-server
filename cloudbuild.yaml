@@ -17,7 +17,7 @@ steps:
       - "-c"
       - |
         set -x
-        if [ $BRANCH_NAME != 'master' ]; then
+        if [ $BRANCH_NAME == 'master' ]; then
           docker push gcr.io/$PROJECT_ID/$REPO_NAME:$REVISION_ID gcr.io/$PROJECT_ID/$REPO_NAME:latest
         fi
         

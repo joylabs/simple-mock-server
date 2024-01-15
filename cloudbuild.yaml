@@ -11,10 +11,15 @@ steps:
   - name: 'docker:stable'
     entrypoint: sh
     id: 'image-push'
+    env:
+      - 'BRANCH_NAME=$BRANCH_NAME'
     args:
       - "-c"
       - |
         set -x
-        docker push gcr.io/$PROJECT_ID/$REPO_NAME:$REVISION_ID
+        if [ $BRANCH_NAME != 'master' ]; then
+          docker push gcr.io/$PROJECT_ID/$REPO_NAME:$REVISION_ID gcr.io/$PROJECT_ID/$REPO_NAME:latest
+        fi
+        
 
 timeout: 3000s
